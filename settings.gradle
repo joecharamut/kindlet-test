@@ -1,0 +1,4 @@
+rootProject.name = 'kindle-test'
+
+include "test-patch"
+

@@ -1,0 +1,5 @@
+{
+  "patches": [
+    "rocks.spaghetti.testpatch.TestPatch"
+  ]
+}

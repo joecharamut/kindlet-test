@@ -1,0 +1,121 @@
+plugins {
+    id "com.github.johnrengelman.shadow" version "7.1.0"
+    id "java"
+}
+
+allprojects {
+    buildDir = new File(rootProject.buildDir, it.name)
+
+    repositories {
+        mavenCentral()
+    }
+}
+
+compileJava {
+    sourceCompatibility = "1.8"
+    targetCompatibility = "1.8"
+}
+
+group "rocks.spaghetti"
+version "0.0.1"
+
+project("test-patch") {
+    apply plugin: "java"
+
+    archivesBaseName = "${rootProject.group}.testpatch-${rootProject.version}"
+
+    dependencies {
+        compileOnly fileTree("$rootDir/vendor").matching {
+            include "**/*.jar"
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    compileOnly fileTree("$rootDir/vendor").matching {
+        include "**/*.jar"
+    }
+
+    implementation "org.javassist:javassist:3.28.0-GA"
+    implementation "org.objenesis:objenesis:3.2"
+    implementation "org.ow2.asm:asm:9.2"
+}
+
+jar.enabled = false
+shadowJar {
+    archiveFileName = "${project.group}.kindletest-${project.version}.jar"
+    manifest {
+        attributes(
+                "Main-Class": "rocks.spaghetti.kindletest.KindletTest",
+                "Implementation-Title": "the scrunkly",
+                "Implementation-Version": project.version,
+                "Implementation-Vendor": "double tap now if you'd scrunkly the when",
+                "Extension-List": "SDK",
+                "SDK-Extension-Name": "com.amazon.kindle.kindlet",
+                "SDK-Specification-Version": "2.2",
+                "Toolbar-Mode": "persistent",
+                "Font-Size-Mode": "point",
+        )
+    }
+}
+
+task signJar(dependsOn: shadowJar, description: "to Sign JAR.", group: "Build") {
+    def keystore = file("vendor/developer.keystore")
+    def store_pass = "password"
+    def key_alias = "Test"
+
+    doLast {
+        def libsDir = file("$buildDir/libs")
+
+        fileTree(libsDir) { include "*.jar" }.each {jarfile ->
+            println "Signing $jarfile"
+            exec {
+                workingDir libsDir
+                commandLine "jarsigner", "-keystore", keystore, "-storepass", store_pass, jarfile, "dk${key_alias}"
+            }
+            exec {
+                workingDir libsDir
+                commandLine "jarsigner", "-keystore", keystore, "-storepass", store_pass, jarfile, "di${key_alias}"
+            }
+            exec {
+                workingDir libsDir
+                commandLine "jarsigner", "-keystore", keystore, "-storepass", store_pass, jarfile, "dn${key_alias}"
+            }
+        }
+    }
+}
+
+task buildKindlet(dependsOn: signJar, group: "Build") {
+    doLast {
+        copy {
+            from "$buildDir/libs"
+            include "*.jar"
+            into "$buildDir/libs"
+            rename { filename ->
+                filename + ".azw2"
+            }
+        }
+    }
+}
+build.dependsOn(buildKindlet)
+
+task deploy(dependsOn: [clean, buildKindlet], group: "Build") {
+    doLast {
+        def libsDir = file("$buildDir/libs")
+        fileTree(libsDir) { include "*.azw2" }.each {kindlet ->
+            println "Deploying $kindlet"
+            exec {
+                workingDir file("$buildDir/libs")
+                commandLine "scp", kindlet, "root@192.168.15.244:/mnt/us/documents"
+            }
+            println "Running..."
+            exec {
+                commandLine "ssh", "root@192.168.15.244", "lipc-set-prop com.lab126.appmgrd start app://com.lab126.booklet.home && sleep 3 && lipc-set-prop com.lab126.appmgrd start app://com.lab126.booklet.kindlet/mnt/us/documents/rocks.spaghetti.kindletest-0.0.1.jar.azw2"
+            }
+        }
+    }
+}
